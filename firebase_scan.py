@@ -14,6 +14,7 @@ Author: y0b4get
 """
 
 def storage_bucket(firebase_storage_bucket, api_key):
+    # Check for storage bucket listing
     try:
         headers = {"Authorization": f"Bearer {api_key}"}
         url = f"https://firebasestorage.googleapis.com/v0/b/{firebase_storage_bucket}/o?maxResults=50"
@@ -114,11 +115,11 @@ def look_for_configs(app_id: str, api_key: str, env='PROD'):
 def main():
     parser = argparse.ArgumentParser(prefix_chars='-', add_help=True, prog='./firebase_scan.py', usage='./firebase_scan.py [OPTIONS]',
                                      formatter_class=argparse.RawDescriptionHelpFormatter, description=description)
-    parser.add_argument('-a', '--api-key', type=str, action='store', help='Firebase API Key.')
-    parser.add_argument('-d', '--database', type=str, action='store', help='Firebase Databse URL (Example: https://appid.firebaseio.com)')
-    parser.add_argument('-b', '--bucket', type=str, action='store', help='Firebase Storage Bucket.')
-    parser.add_argument('-id', '--app-id', type=str, action='store', help='Firebase APP ID.')
-    parser.add_argument('-e', '--env', type=str, action='store', help='Environment to look for when fetching remote config. Example: PROD/DEV/TEST.')
+    parser.add_argument('-a', '--api-key', type=str, action='store', help='Firebase API Key.', required=True)
+    parser.add_argument('-d', '--database', type=str, action='store', help='Firebase Databse URL (Example: https://appid.firebaseio.com)', required=True)
+    parser.add_argument('-b', '--bucket', type=str, action='store', help='Firebase Storage Bucket.', required=True)
+    parser.add_argument('-id', '--app-id', type=str, action='store', help='Firebase APP ID.', required=True)
+    parser.add_argument('-e', '--env', type=str, action='store', help='Environment to look for when fetching remote config. Example: PROD/DEV/TEST.', required=False)
 
     args = parser.parse_args()
     api_key = args.api_key
