@@ -23,8 +23,7 @@ python3 firebase_scan.py [OPTIONS]
 
 2) Storage bucket listing
 
-3) Misconfigured Firebase Database with enabled READ permissions. Enabled WRITE permissions are available to check, 
-   but can't happen passivley so it's not included.
+3) Misconfigured Firebase Database with enabled READ permissions. Enabled WRITE permissions are available to check manually.
 
 4) Remote config fetching
 
