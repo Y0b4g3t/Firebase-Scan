@@ -1,5 +1,6 @@
 import argparse
 import requests
+import json
 
 # Disable requests warnings
 requests.packages.urllib3.disable_warnings()
@@ -36,19 +37,19 @@ def user_registration(api_key):
     user_registartion_url = f'https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={api_key}'
     data = {
         "email": "asd@asdfggh.com",
-        "password": "",
+        "password": "asdasd",
         "returnSecureToken": "true"
     }
     response = requests.post(user_registartion_url, json=data, verify=False)
-
-    if response.status_code == 200:
-        # Less chance that status code will be 200
-        print("[HIGH] User registration is enabled!")
+    
+    if response.status_code == 200 and 'idToken' in response.text:
+        # User registration enabled. If disabled, the message will be 'NO_FORMAT' or 'ADMIN_OPERATION_ONLY', etc.
+        print("[HIGH] User registration is enabled! - REGISTERED USER: asd@asdfggh.com:asdasd")
         return True
     
-    elif response.status_code == 400 and 'MISSING_PASSWORD' in response.text:
+    elif response.status_code == 400 and 'EMAIL_EXISTS' in response.text:
         # User registration enabled. If disabled, the message will be 'NO_FORMAT' or 'ADMIN_OPERATION_ONLY', etc.
-        print("[HIGH] User registration is enabled!")
+        print("[HIGH] User registration is enabled! - REGISTERED USER: asd@asdfggh.com:asdasd")
         return True
     
     # elif 'ADMIN_ONLY_OPERATION' not in response.text and 'CONFIGURATION_NOT_FOUND' not in response.text:
@@ -76,7 +77,7 @@ def database_misconfig(firebase_db_url, api_key=None):
                 return True
         
         # Not vulnerable message.
-        print("Firebase Storage Bucket seems to not be vulnerable.")
+        print("Firebase Database seems to not be vulnerable.")
         return False
     except Exception:
         return False
@@ -115,32 +116,49 @@ def look_for_configs(app_id: str, api_key: str, env='PROD'):
 def main():
     parser = argparse.ArgumentParser(prefix_chars='-', add_help=True, prog='./firebase_scan.py', usage='./firebase_scan.py [OPTIONS]',
                                      formatter_class=argparse.RawDescriptionHelpFormatter, description=description)
-    parser.add_argument('-a', '--api-key', type=str, action='store', help='Firebase API Key.', required=True)
-    parser.add_argument('-d', '--database', type=str, action='store', help='Firebase Databse URL (Example: https://appid.firebaseio.com)', required=True)
-    parser.add_argument('-b', '--bucket', type=str, action='store', help='Firebase Storage Bucket.', required=True)
-    parser.add_argument('-id', '--app-id', type=str, action='store', help='Firebase APP ID.', required=True)
-    parser.add_argument('-e', '--env', type=str, action='store', help='Environment to look for when fetching remote config. Example: PROD/DEV/TEST.', required=False)
+    parser.add_argument('-a', '--api-key', type=str, action='store', help='Firebase API Key.')
+    parser.add_argument('-d', '--database', type=str, action='store', help='Firebase Databse URL (Example: https://appid.firebaseio.com)', default=None)
+    parser.add_argument('-b', '--bucket', type=str, action='store', help='Firebase Storage Bucket.', default=None)
+    parser.add_argument('-id', '--app-id', type=str, action='store', help='Firebase APP ID.')
+    parser.add_argument('-e', '--env', type=str, action='store', help='Environment to look for when fetching remote config. Example: PROD/DEV/TEST.',
+                        default="PROD")
+    
+    # Load a firebase json config file instead of using all the switches
+    parser.add_argument('-f', '--file', type=str, action='store', help='JSON file of the Firebase config.')
+
 
     args = parser.parse_args()
-    api_key = args.api_key
-    db_url = args.database
-    bucket_url = args.bucket
-    app_id = args.app_id
+    
+    if args.file:
+        json_file = json.load(open(args.file, 'r'))
+        api_key = json_file.get('apiKey')
+        db_url = json_file.get('databaseURL')
+        bucket_url = json_file.get('storageBucket')
+        app_id = json_file.get('appId')
+    else:
+        api_key = args.api_key
+        db_url = args.database
+        bucket_url = args.bucket
+        app_id = args.app_id
+    
+    env = args.env
 
     # Start scan print
     print("Started firebase scan...")
 
     # Check for bucket listing misconfig
-    storage_bucket(bucket_url, api_key)
+    if bucket_url:
+        storage_bucket(bucket_url, api_key)
 
     # Check for user registration misconfig
     user_registration(api_key)
 
     # Check for databse READ access.
-    database_misconfig(db_url, api_key)
+    if db_url:
+        database_misconfig(db_url, api_key)
 
     # Check for interesting configs - taken from https://cloud.hacktricks.xyz/pentesting-cloud/gcp-security/gcp-services/gcp-firebase-enum
-    look_for_configs(app_id, api_key)
+    look_for_configs(app_id, api_key, env)
 
 
 if __name__ == "__main__":

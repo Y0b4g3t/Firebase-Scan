@@ -1,0 +1,10 @@
+{
+    "apiKey": "AIza....",
+    "authDomain": "<PROJECT>.firebaseapp.com",
+    "databaseURL": "https://<PROJECT>.firebaseio.com",
+    "projectId": "<PROJECTID>",
+    "storageBucket": "<PROJECT>.appspot.com",
+    "messagingSenderId": "123123123",
+    "appId": "",
+    "measurementId": "G-379MTQBPB7"
+}
