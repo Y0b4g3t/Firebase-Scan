@@ -1,6 +1,4 @@
-import argparse
 import requests
-import json
 
 # Disable requests warnings
 requests.packages.urllib3.disable_warnings()
@@ -88,8 +86,8 @@ def look_for_configs(app_id: str, api_key: str, env='PROD'):
     # Reference: https://cloud.hacktricks.xyz/pentesting-cloud/gcp-security/gcp-services/gcp-firebase-enum
     try:
         project_id = app_id.split(':')[1]
-    except KeyError as err:
-        raise 'APP ID is not in the right format. Example: 1:612345678909:web:c212345678909876'
+    except IndexError as err:
+        raise ValueError('APP ID is not in the right format. Example: 1:612345678909:web:c212345678909876') from err
     
     # Set up the request
     end_url = f'https://firebaseremoteconfig.googleapis.com/v1/projects/{project_id}/namespaces/firebase:fetch?key={api_key}'
@@ -111,55 +109,3 @@ def look_for_configs(app_id: str, api_key: str, env='PROD'):
             print(f"[INFO] Might found interesting information from remote config:\n {response.text}")
     except Exception as err:
         print(f"Error when looking for remote config: {err}")
-
-
-def main():
-    parser = argparse.ArgumentParser(prefix_chars='-', add_help=True, prog='./firebase_scan.py', usage='./firebase_scan.py [OPTIONS]',
-                                     formatter_class=argparse.RawDescriptionHelpFormatter, description=description)
-    parser.add_argument('-a', '--api-key', type=str, action='store', help='Firebase API Key.')
-    parser.add_argument('-d', '--database', type=str, action='store', help='Firebase Databse URL (Example: https://appid.firebaseio.com)', default=None)
-    parser.add_argument('-b', '--bucket', type=str, action='store', help='Firebase Storage Bucket.', default=None)
-    parser.add_argument('-id', '--app-id', type=str, action='store', help='Firebase APP ID.')
-    parser.add_argument('-e', '--env', type=str, action='store', help='Environment to look for when fetching remote config. Example: PROD/DEV/TEST.',
-                        default="PROD")
-    
-    # Load a firebase json config file instead of using all the switches
-    parser.add_argument('-f', '--file', type=str, action='store', help='JSON file of the Firebase config.')
-
-
-    args = parser.parse_args()
-    
-    if args.file:
-        json_file = json.load(open(args.file, 'r'))
-        api_key = json_file.get('apiKey')
-        db_url = json_file.get('databaseURL')
-        bucket_url = json_file.get('storageBucket')
-        app_id = json_file.get('appId')
-    else:
-        api_key = args.api_key
-        db_url = args.database
-        bucket_url = args.bucket
-        app_id = args.app_id
-    
-    env = args.env
-
-    # Start scan print
-    print("Started firebase scan...")
-
-    # Check for bucket listing misconfig
-    if bucket_url:
-        storage_bucket(bucket_url, api_key)
-
-    # Check for user registration misconfig
-    user_registration(api_key)
-
-    # Check for databse READ access.
-    if db_url:
-        database_misconfig(db_url, api_key)
-
-    # Check for interesting configs - taken from https://cloud.hacktricks.xyz/pentesting-cloud/gcp-security/gcp-services/gcp-firebase-enum
-    look_for_configs(app_id, api_key, env)
-
-
-if __name__ == "__main__":
-    main()

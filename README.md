@@ -29,6 +29,7 @@ python3 firebase_scan.py [OPTIONS]
 
 ## References
 [https://cloud.hacktricks.xyz/pentesting-cloud/gcp-security/gcp-services/gcp-firebase-enum](https://cloud.hacktricks.xyz/pentesting-cloud/gcp-security/gcp-services/gcp-firebase-enum)
+
 [https://atos.net/en/lp/securitydive/misconfigured-firebase-a-real-time-cyber-threat](https://atos.net/en/lp/securitydive/misconfigured-firebase-a-real-time-cyber-threat)
 
 
