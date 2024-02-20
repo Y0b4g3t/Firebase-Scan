@@ -15,7 +15,7 @@ Usage:
 ```
 git clone https://github.com/Y0b4g3t/Firebase-Scan.git
 cd Firebase-Scan
-python3 firebase_scan.py [OPTIONS]
+python3 main.py [OPTIONS]
 ```
 
 ## Finds common misconfigurations:
