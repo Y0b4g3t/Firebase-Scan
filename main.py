@@ -1,11 +1,20 @@
 import argparse
 import json
-from firebase_scan import storage_bucket, database_misconfig, user_registration, look_for_configs, description
+from firebase_scan import storage_bucket, database_misconfig, user_registration, look_for_configs
+
+
+DESCRIPTION = """
+Title: Firebase Misconfiguration scanning tool.
+Description: This tool is used for testing various firebase common misconfigurations, like
+Storage Bucket listing, User registration, Remote config, and exposed database.
+
+Author: y0b4get
+"""
 
 
 def main():
     parser = argparse.ArgumentParser(prefix_chars='-', add_help=True, prog='./main.py', usage='./main.py [OPTIONS]',
-                                     formatter_class=argparse.RawDescriptionHelpFormatter, description=description)
+                                     formatter_class=argparse.RawDescriptionHelpFormatter, description=DESCRIPTION)
     parser.add_argument('-a', '--api-key', type=str, action='store', help='Firebase API Key.')
     parser.add_argument('-d', '--database', type=str, action='store', help='Firebase Databse URL (Example: https://appid.firebaseio.com)', default=None)
     parser.add_argument('-b', '--bucket', type=str, action='store', help='Firebase Storage Bucket.', default=None)

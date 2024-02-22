@@ -4,14 +4,6 @@ import requests
 requests.packages.urllib3.disable_warnings()
 
 
-description = """
-Title: Firebase Misconfiguration scanning tool.
-Description: This tool is used for testing various firebase common misconfigurations, like
-Storage Bucket listing, User registration, Remote config, and exposed database.
-
-Author: y0b4get
-"""
-
 def storage_bucket(firebase_storage_bucket, api_key):
     # Check for storage bucket listing
     try:
