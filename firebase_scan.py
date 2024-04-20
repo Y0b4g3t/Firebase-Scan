@@ -1,17 +1,61 @@
 import requests
+import pyrebase
 
 # Disable requests warnings
 requests.packages.urllib3.disable_warnings()
 
 
-def storage_bucket(firebase_storage_bucket, api_key):
+class FirebaseObj:
+    def __init__(self, config: dict):
+        self.config = config
+        self.firebase = pyrebase.initialize_app(config)
+        self.storage = self.firebase.storage()
+        self.database = self.firebase.database()
+        self.auth = self.firebase.auth()
+        self.user = None
+
+    def set_user_true(self, email, password):
+        self.user = self.auth.sign_in_with_email_and_password(email, password)
+
+    def authenticated_enum(self):
+        # Check if storage bucket is vulnerable with idToken
+        try:
+            if storage_bucket(self.config['storageBucket'], self.config['apiKey'], id_token=self.user['idToken']) is False:
+                print("Couldn't enumerate storage bucket with user credentials.")
+        except Exception:
+            print("Couldn't enumerate storage bucket with user credentials.")
+
+        # Check for exposed database with user credentials
+        try:
+            self.authenticated_database_enum()
+        except Exception:
+            pass
+
+    def authenticated_database_enum(self):
+        try:
+            database_listing = self.database.child().get(token=self.user['idToken']).val()
+            if database_listing:
+                print('[CRITICAL] Database is exposed with user credentials!')
+        except Exception:
+            print("Couldn't enumerate database with user credentials.")
+
+
+def storage_bucket(firebase_storage_bucket, api_key, max_results=50, id_token=None):
     # Check for storage bucket listing
     try:
         headers = {"Authorization": f"Bearer {api_key}"}
-        url = f"https://firebasestorage.googleapis.com/v0/b/{firebase_storage_bucket}/o?maxResults=50"
-        response = requests.get(url, headers=headers, verify=False)
+
+        # If ID TOKEN provided, will try to list files with user token.
+        if id_token:
+            url = f"https://firebasestorage.googleapis.com/v0/b/{firebase_storage_bucket}/o?maxResults={max_results}&token={id_token}"
+            message = "[HIGH] The storage bucket listing is exposed with USER CREDENTIALS! - to download/list files, use the proper flag."
+        else:
+            url = f"https://firebasestorage.googleapis.com/v0/b/{firebase_storage_bucket}/o?maxResults={max_results}"
+            message = "[HIGH] The storage bucket listing is exposed! - to download/list files, use the proper flag."
+
+        response = requests.get(url, headers=headers, verify=False, proxies={'http': '127.0.0.1:8080', 'https': '127.0.0.1:8080'})
         if response.status_code == 200:
-            print("[MEDIUM] The storage bucket listing is exposed!")
+            print(message)
             return True
     except Exception:
         pass
@@ -30,7 +74,7 @@ def user_registration(api_key):
         "password": "asdasd",
         "returnSecureToken": "true"
     }
-    response = requests.post(user_registartion_url, json=data, verify=False)
+    response = requests.post(user_registartion_url, json=data, verify=False, proxies={'http':'127.0.0.1:8080', 'https': '127.0.0.1:8080'})
     
     if response.status_code == 200 and 'idToken' in response.text:
         # User registration enabled. If disabled, the message will be 'NO_FORMAT' or 'ADMIN_OPERATION_ONLY', etc.
@@ -61,7 +105,7 @@ def database_misconfig(firebase_db_url, api_key=None):
             return True
         # If api key is given, check if it can be accessed with api key.
         elif api_key:
-            response = requests.get(f'{firebase_expose_url}?auth={api_key}', verify=False)
+            response = requests.get(f'{firebase_expose_url}?auth={api_key}', verify=False, proxies={'http':'127.0.0.1:8080', 'https': '127.0.0.1:8080'})
             if response.status_code == 200:
                 print(f"Firebase Database is exposed!!: \n{firebase_expose_url}?auth={api_key}")
                 return True
@@ -92,7 +136,7 @@ def look_for_configs(app_id: str, api_key: str, env='PROD'):
     }
 
     try:
-        response = requests.post(end_url, json=data, headers=headers, verify=False)
+        response = requests.post(end_url, json=data, headers=headers, verify=False, proxies={'http':'127.0.0.1:8080', 'https': '127.0.0.1:8080'})
         if "NO_TEMPLATE" in response.text:
             print("Couldn't fetch remote config.")
             return False  # No info
