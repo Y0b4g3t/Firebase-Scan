@@ -1,7 +1,8 @@
 import argparse
 import json
 from firebase_scan import storage_bucket, database_misconfig, user_registration, look_for_configs, FirebaseObj
-
+from firebase_config_fetcher import firebase_regex_search
+import requests
 
 DESCRIPTION = """
 Title: Firebase Misconfiguration scanning tool.
@@ -35,29 +36,44 @@ def main():
     parser.add_argument('-email', '--email', type=str, action='store', help='Email for user registration', default="asd@asdfggh.com")
     parser.add_argument('-p', '--password', type=str, action='store', help='Password for user registration',
                         default="asdasd")
-    parser.add_argument('--projectname', type=str, action='store', help='Project name', required=True)
+    parser.add_argument('--projectname', type=str, action='store', help='Project name')
     
     # Load a firebase json config file instead of using all the switches
     parser.add_argument('-f', '--file', type=str, action='store', help='JSON file of the Firebase config.')
+    parser.add_argument('-u', '--url', type=str, action='store', help='URL of where the Firebase config is presented.')
+
+    # Bucket exploitation
+    parser.add_argument('-bw', '--bucket_write', type=str, action='store',
+                        help='Attempt write action against the storage bucket. File will be saved to poc/<FILE_NAME>.',
+                        default=False)
+    parser.add_argument('-bl', '--bucket_list', action='store_true',
+                        help='Print the bucket listing.', default=False)
 
     args = parser.parse_args()
     
     if args.file:
-        json_file = json.load(open(args.file, 'r'))
-        api_key = json_file.get('apiKey')
-        db_url = json_file.get('databaseURL')
-        bucket_url = json_file.get('storageBucket')
-        app_id = json_file.get('appId')
+        firebase_config = json.load(open(args.file, 'r'))
+        api_key = firebase_config.get('apiKey')
+        db_url = firebase_config.get('databaseURL')
+        bucket_url = firebase_config.get('storageBucket')
+        app_id = firebase_config.get('appId')
+    elif args.url:
+        # Get URL response and fetch the firebase config.
+        response = requests.get(args.url, verify=False)
+        firebase_config = firebase_regex_search(response.text)
+        api_key = firebase_config.get('apiKey')
+        db_url = firebase_config.get('databaseURL')
+        bucket_url = firebase_config.get('storageBucket')
+        app_id = firebase_config.get('appId')
     else:
         api_key = args.api_key
         db_url = args.database
         bucket_url = args.bucket
         app_id = args.app_id
         project_name = args.projectname
+        firebase_config = set_config(api_key, db_url, bucket_url, app_id, project_name)
 
-    # Set the config for pyrebase
-    config = set_config(api_key, db_url, bucket_url, app_id, project_name)
-    firebase_obj = FirebaseObj(config)
+    firebase_obj = FirebaseObj(firebase_config)
 
     # Set values (These have defaults)
     env = args.env
@@ -69,7 +85,7 @@ def main():
 
     # Check for bucket listing misconfig
     if bucket_url:
-        storage_bucket(bucket_url, api_key)
+        storage_bucket(firebase_obj, bucket_write=args.bucket_write, bucket_list=args.bucket_list)
 
     # Check for databse READ access.
     if db_url:

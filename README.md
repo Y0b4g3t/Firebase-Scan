@@ -7,7 +7,7 @@ Created by: Y0b4get
 
 Requirements:
 ```
-pip install requests argparse
+pip install requests argparse pyrebase4
 ```
 
 Usage:
@@ -18,10 +18,15 @@ cd Firebase-Scan
 python3 main.py [OPTIONS]
 ```
 
+Quick Start: (Just fetch the firebase config from a URL response)
+```commandline
+python3 main.py --url URL
+```
+
 ## Finds common misconfigurations:
 1) Enabled user registration
 
-2) Storage bucket listing
+2) Storage bucket READ/WRITE
 
 3) Misconfigured Firebase Database with enabled READ permissions. Enabled WRITE permissions are available to check manually.
 
