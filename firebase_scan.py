@@ -18,12 +18,19 @@ class FirebaseObj:
         self.user = None
 
     def set_user_true(self, email, password):
-        self.user = self.auth.sign_in_with_email_and_password(email, password)
+        try:
+            self.user = self.auth.sign_in_with_email_and_password(email, password)
+        except Exception:
+            url = f'https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={self.config["apiKey"]}'
+            data = {"email": email, "password": password, "returnSecureToken": "true"}
+            response = requests.post(url, json=data, verify=False)
+            refresh_token = response.json().get('refreshToken')
+            self.user = self.auth.refresh(refresh_token)
 
     def authenticated_enum(self):
         # Check if storage bucket is vulnerable with idToken
         try:
-            if storage_bucket(self.config['storageBucket'], self.config['apiKey'], id_token=self.user['idToken']) is False:
+            if storage_bucket(self, id_token=self.user['idToken']) is False:
                 print("Couldn't enumerate storage bucket with user credentials.")
         except Exception:
             print("Couldn't enumerate storage bucket with user credentials.")
@@ -42,9 +49,14 @@ class FirebaseObj:
         except Exception:
             print("Couldn't enumerate database with user credentials.")
 
+    def close(self):
+        # Delete user if there is
+        if self.user:
+            self.auth.delete_user_account(self.user['idToken'])
+
 
 def storage_bucket(firebase_obj: FirebaseObj, id_token=None, bucket_write=False,
-                   bucket_list=False):
+                   bucket_list=False, bucket_download=False):
     # Check for storage bucket listing
     try:
         headers = {"Authorization": f"Bearer {firebase_obj.config['apiKey']}"}
@@ -52,8 +64,20 @@ def storage_bucket(firebase_obj: FirebaseObj, id_token=None, bucket_write=False,
 
         # If ID TOKEN provided, will try to list files with user token.
         if id_token:
+            # Try to list bucket
             url = f"https://firebasestorage.googleapis.com/v0/b/{firebase_storage_bucket}/o?maxResults=100&token={id_token}"
             message = "[HIGH] The storage bucket listing is exposed with USER CREDENTIALS! - to download/list files, use the proper flag."
+
+            # Try to upload files to bucket
+            try:
+                firebase_response = firebase_obj.storage.child('poc.txt').put('poc.txt', id_token)
+                if firebase_response:
+                    print("Storage bucket vulnerable to file upload via authenticated user!")
+                    # Delete file
+                    firebase_obj.storage.child('poc.txt').delete('poc.txt')
+            except Exception:
+                pass
+
         else:
             url = f"https://firebasestorage.googleapis.com/v0/b/{firebase_storage_bucket}/o?maxResults=100"
             message = "[HIGH] The storage bucket listing is exposed! - to download/list files, use the proper flag."
@@ -67,6 +91,9 @@ def storage_bucket(firebase_obj: FirebaseObj, id_token=None, bucket_write=False,
             if bucket_write:
                 # Check write permissions. bucket_write will contain the name of the file to upload.
                 bucket_write_permission(firebase_obj, bucket_write)
+
+            if bucket_download:
+                bucket_download_file(firebase_obj, bucket_download)
             return True
     except Exception as err:
         print(err)
@@ -75,15 +102,15 @@ def storage_bucket(firebase_obj: FirebaseObj, id_token=None, bucket_write=False,
     return False
 
 
-def user_registration(api_key):
+def user_registration(api_key, email, password):
     # This script looks for user registration misconfiguration. This is a high-severity finding,
     # as remote attacker can create a firebase user and potentially access sensitive information,
     # manipulate entries, or even compromise the database.
 
     user_registartion_url = f'https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={api_key}'
     data = {
-        "email": "asd@asdfggh.com",
-        "password": "asdasd",
+        "email": email,
+        "password": password,
         "returnSecureToken": "true"
     }
     response = requests.post(user_registartion_url, json=data, verify=False, proxies={'http':'127.0.0.1:8080', 'https': '127.0.0.1:8080'})
@@ -160,8 +187,20 @@ def look_for_configs(app_id: str, api_key: str, env='PROD'):
 
 
 def bucket_write_permission(firebase_client, write_file_name):
-    response = firebase_client.storage.child(f'poc/{write_file_name}').put(write_file_name)
+    response = firebase_client.storage.child(f'{write_file_name}').put(write_file_name)
     if response:
-        print(f'[CRITICAL] File uploaded to the bucket: poc/{write_file_name}')
+        print(f'[CRITICAL] File uploaded to the bucket: {write_file_name}')
         return response
     return False
+
+
+def bucket_download_file(firebase_client: FirebaseObj, file_name):
+    try:
+        if '/' in file_name:
+            download_name = file_name.split('/')[-1]
+        else:
+            download_name = file_name
+        firebase_client.storage.child(file_name).download(path=file_name, filename=f'./{download_name}')
+        print(f'Successfuly download the file to: ./{file_name}')
+    except Exception as err:
+        print(f"Couldn't download the file: {err}")

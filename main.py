@@ -33,21 +33,32 @@ def main():
     parser.add_argument('-id', '--app-id', type=str, action='store', help='Firebase APP ID.')
     parser.add_argument('-e', '--env', type=str, action='store', help='Environment to look for when fetching remote config. Example: PROD/DEV/TEST.',
                         default="PROD")
-    parser.add_argument('-email', '--email', type=str, action='store', help='Email for user registration', default="asd@asdfggh.com")
+    parser.add_argument('-email', '--email', type=str, action='store', help='Email for user registration', default="asdd@asdfggh.com")
     parser.add_argument('-p', '--password', type=str, action='store', help='Password for user registration',
-                        default="asdasd")
+                        default="asdsasd")
     parser.add_argument('--projectname', type=str, action='store', help='Project name')
     
-    # Load a firebase json config file instead of using all the switches
+    # Load a firebase json config file/from URL instead of using all the switches
     parser.add_argument('-f', '--file', type=str, action='store', help='JSON file of the Firebase config.')
     parser.add_argument('-u', '--url', type=str, action='store', help='URL of where the Firebase config is presented.')
 
+    # Scan options
+    scan_options_group = parser.add_argument_group('Storage Bucket Enumeration')
+    scan_options_group.add_argument('-sa', '--all', action='store_true', help='All scan (detection) options.')
+    scan_options_group.add_argument('-sb', '--scan-bucket', action='store_true', help='Detection of bucket misconfig.')
+    scan_options_group.add_argument('-sd', '--scan-database', action='store_true', help='Detection of database misconfig.')
+    scan_options_group.add_argument('-sr', '--scan-registration', action='store_true', help='Detection of user registration.')
+    scan_options_group.add_argument('-sc', '--scan-remote-config', action='store_true', help='Detection of remote config fetching.')
+
     # Bucket exploitation
-    parser.add_argument('-bw', '--bucket_write', type=str, action='store',
-                        help='Attempt write action against the storage bucket. File will be saved to poc/<FILE_NAME>.',
-                        default=False)
-    parser.add_argument('-bl', '--bucket_list', action='store_true',
-                        help='Print the bucket listing.', default=False)
+    storage_enum_group = parser.add_argument_group('Storage Bucket Enumeration')
+    storage_enum_group.add_argument('-bw', '--bucket_write', type=str, action='store',
+                            help='Attempt write action against the storage bucket. File will be saved exactly to the '
+                                 'path you choose.', default=False)
+    storage_enum_group.add_argument('-bl', '--bucket_list', action='store_true',
+                            help='Print the bucket listing.', default=False)
+    storage_enum_group.add_argument('-bd', '--bucket_download', action='store', type=str,
+                            help='Download a file in this directory.', default=False)
 
     args = parser.parse_args()
     
@@ -84,21 +95,29 @@ def main():
     print("Started firebase scan...")
 
     # Check for bucket listing misconfig
-    if bucket_url:
-        storage_bucket(firebase_obj, bucket_write=args.bucket_write, bucket_list=args.bucket_list)
+    if bucket_url and (args.scan_bucket or args.all):
+        storage_bucket(firebase_obj, bucket_write=args.bucket_write, bucket_list=args.bucket_list,
+                       bucket_download=args.bucket_download)
 
     # Check for databse READ access.
-    if db_url:
+    if db_url and (args.scan_database or args.all):
         database_misconfig(db_url, api_key)
 
-    # Check for interesting configs - taken from https://cloud.hacktricks.xyz/pentesting-cloud/gcp-security/gcp-services/gcp-firebase-enum
-    look_for_configs(app_id, api_key, env)
+    # Check for interesting configs - taken from
+    # https://cloud.hacktricks.xyz/pentesting-cloud/gcp-security/gcp-services/gcp-firebase-enum
+    if args.scan_remote_config or args.all:
+        look_for_configs(app_id, api_key, env)
 
     # Check for user registration misconfig
-    if user_registration(api_key):
-        firebase_obj.set_user_true(email, password)
-        # Start authenticated enumeration on bucket and DB.
-        firebase_obj.authenticated_database_enum()
+    if args.scan_registration or args.all:
+        if user_registration(api_key, email, password):
+            # Sign in with the user credentials to get idToken.
+            firebase_obj.set_user_true(email, password)
+            # Start authenticated enumeration on bucket and DB.
+            firebase_obj.authenticated_database_enum()
+
+    # Close pyrebase SDK - basically just delete user account if registered
+    firebase_obj.close()
 
 
 if __name__ == "__main__":
