@@ -1,5 +1,6 @@
 import requests
 import pyrebase
+from full_bucket_filenames_extract import extract
 
 # Disable requests warnings
 requests.packages.urllib3.disable_warnings()
@@ -18,6 +19,8 @@ class FirebaseObj:
         self.user = None
 
     def set_user_true(self, email, password):
+        # Authenticate with pyrebase built in method, but it has an endpoint that sometimes returns "Wrong password",
+        # Even though the credentials are right.
         try:
             self.user = self.auth.sign_in_with_email_and_password(email, password)
         except Exception:
@@ -33,7 +36,8 @@ class FirebaseObj:
             if storage_bucket(self, id_token=self.user['idToken']) is False:
                 print("Couldn't enumerate storage bucket with user credentials.")
         except Exception:
-            print("Couldn't enumerate storage bucket with user credentials.")
+            # print("Couldn't enumerate storage bucket with user credentials.")
+            pass
 
         # Check for exposed database with user credentials
         try:
@@ -55,7 +59,7 @@ class FirebaseObj:
             self.auth.delete_user_account(self.user['idToken'])
 
 
-def storage_bucket(firebase_obj: FirebaseObj, id_token=None, bucket_write=False,
+def storage_bucket(firebase_obj: FirebaseObj, id_token=None, bucket_write=None,
                    bucket_list=False, bucket_download=False):
     # Check for storage bucket listing
     try:
@@ -64,41 +68,40 @@ def storage_bucket(firebase_obj: FirebaseObj, id_token=None, bucket_write=False,
 
         # If ID TOKEN provided, will try to list files with user token.
         if id_token:
+            authenticated_enum = {"read": False, "write": False}
             # Try to list bucket
             url = f"https://firebasestorage.googleapis.com/v0/b/{firebase_storage_bucket}/o?maxResults=100&token={id_token}"
-            message = "[HIGH] The storage bucket listing is exposed with USER CREDENTIALS! - to download/list files, use the proper flag."
-
-            # Try to upload files to bucket
-            try:
-                firebase_response = firebase_obj.storage.child('poc.txt').put('poc.txt', id_token)
-                if firebase_response:
-                    print("Storage bucket vulnerable to file upload via authenticated user!")
-                    # Delete file
-                    firebase_obj.storage.child('poc.txt').delete('poc.txt')
-            except Exception:
-                pass
+            message = "[HIGH] The storage bucket listing is exposed with USER CREDENTIALS! - to download/list files, use the proper flag. - %s"
+            authenticated_enum['read'] = True  # Update status
 
         else:
             url = f"https://firebasestorage.googleapis.com/v0/b/{firebase_storage_bucket}/o?maxResults=100"
-            message = "[HIGH] The storage bucket listing is exposed! - to download/list files, use the proper flag."
+            message = "[HIGH] The storage bucket listing is exposed! - to download/list files, use the proper flag. - %s"
 
         response = requests.get(url, headers=headers, verify=False, proxies={'http': '127.0.0.1:8080', 'https': '127.0.0.1:8080'})
         if response.status_code == 200:
-            print(message)
+            print(message % url)
             if bucket_list:
                 print(response.text)
 
             if bucket_write:
                 # Check write permissions. bucket_write will contain the name of the file to upload.
-                bucket_write_permission(firebase_obj, bucket_write)
+                bucket_write_res = bucket_write_permission(firebase_obj, bucket_write, id_token=id_token)
+                if bucket_write_res:
+                    extracted_bucket_files = extract(firebase_storage_bucket, firebase_obj.config['apiKey'])
+
 
             if bucket_download:
                 bucket_download_file(firebase_obj, bucket_download)
-            return True
+
+            if id_token:
+                return authenticated_enum
+            else:
+                return True
     except Exception as err:
         print(err)
         pass
-    print("The storage bucket listing is not vulnerable.")
+    # print("The storage bucket listing is not vulnerable.")
     return False
 
 
@@ -117,17 +120,17 @@ def user_registration(api_key, email, password):
     
     if response.status_code == 200 and 'idToken' in response.text:
         # User registration enabled. If disabled, the message will be 'NO_FORMAT' or 'ADMIN_OPERATION_ONLY', etc.
-        print("[HIGH] User registration is enabled! - REGISTERED USER: asd@asdfggh.com:asdasd")
+        print(f"[HIGH] User registration is enabled! - REGISTERED USER: {email}{password}")
         return True
     
     elif response.status_code == 400 and 'EMAIL_EXISTS' in response.text:
         # User registration enabled. If disabled, the message will be 'NO_FORMAT' or 'ADMIN_OPERATION_ONLY', etc.
-        print("[HIGH] User registration is enabled! - REGISTERED USER: asd@asdfggh.com:asdasd")
+        print(f"[HIGH] User registration is enabled! - REGISTERED USER: {email}{password}")
         return True
     
     # elif 'ADMIN_ONLY_OPERATION' not in response.text and 'CONFIGURATION_NOT_FOUND' not in response.text:
     #     return False
-    print("User registration is disabled.")
+    # print("User registration is disabled.")
     return False
 
 
@@ -150,7 +153,7 @@ def database_misconfig(firebase_db_url, api_key=None):
                 return True
         
         # Not vulnerable message.
-        print("Firebase Database seems to not be vulnerable.")
+        # print("Firebase Database seems to not be vulnerable.")
         return False
     except Exception:
         return False
@@ -177,7 +180,6 @@ def look_for_configs(app_id: str, api_key: str, env='PROD'):
     try:
         response = requests.post(end_url, json=data, headers=headers, verify=False, proxies={'http':'127.0.0.1:8080', 'https': '127.0.0.1:8080'})
         if "NO_TEMPLATE" in response.text:
-            print("Couldn't fetch remote config.")
             return False  # No info
         else:
             # Print information
@@ -186,12 +188,16 @@ def look_for_configs(app_id: str, api_key: str, env='PROD'):
         print(f"Error when looking for remote config: {err}")
 
 
-def bucket_write_permission(firebase_client, write_file_name):
-    response = firebase_client.storage.child(f'{write_file_name}').put(write_file_name)
-    if response:
-        print(f'[CRITICAL] File uploaded to the bucket: {write_file_name}')
-        return response
-    return False
+def bucket_write_permission(firebase_client, write_file_name, id_token=None):
+    try:
+        response = firebase_client.storage.child(f'{write_file_name}').put(write_file_name, id_token)
+        if response:
+            print(f'[CRITICAL] File uploaded to the bucket: {write_file_name}, bucket: {firebase_client.config.get("storageBucket")}, idToken: {id_token}')
+            # Delete the file
+            firebase_client.storage.child(write_file_name).delete(write_file_name, None)
+            return response
+    except Exception:
+        return False
 
 
 def bucket_download_file(firebase_client: FirebaseObj, file_name):
@@ -204,3 +210,10 @@ def bucket_download_file(firebase_client: FirebaseObj, file_name):
         print(f'Successfuly download the file to: ./{file_name}')
     except Exception as err:
         print(f"Couldn't download the file: {err}")
+
+
+def analyze_bucket_content(file_names):
+    for name in file_names:
+        if name.endswith('.html') or name.endswith('.js') or name.endswith('.php'):
+            print("Vector 4")
+            pass

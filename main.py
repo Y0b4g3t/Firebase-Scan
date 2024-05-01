@@ -24,6 +24,15 @@ def set_config(api_key, db_url, bucket_url, app_id, project_name):
     return config
 
 
+def scan_url(url):
+    # Get URL response and fetch the firebase config.
+    response = requests.get(url, verify=False)
+    firebase_config = firebase_regex_search(response.text)
+
+    # Run the scan
+    run_scan(firebase_config)
+
+
 def main():
     parser = argparse.ArgumentParser(prefix_chars='-', add_help=True, prog='./main.py', usage='./main.py [OPTIONS]',
                                      formatter_class=argparse.RawDescriptionHelpFormatter, description=DESCRIPTION)
@@ -61,21 +70,16 @@ def main():
                             help='Download a file in this directory.', default=False)
 
     args = parser.parse_args()
+    # Set values (These have defaults)
+    email = args.email
+    password = args.password
     
     if args.file:
         firebase_config = json.load(open(args.file, 'r'))
-        api_key = firebase_config.get('apiKey')
-        db_url = firebase_config.get('databaseURL')
-        bucket_url = firebase_config.get('storageBucket')
-        app_id = firebase_config.get('appId')
     elif args.url:
         # Get URL response and fetch the firebase config.
         response = requests.get(args.url, verify=False)
         firebase_config = firebase_regex_search(response.text)
-        api_key = firebase_config.get('apiKey')
-        db_url = firebase_config.get('databaseURL')
-        bucket_url = firebase_config.get('storageBucket')
-        app_id = firebase_config.get('appId')
     else:
         api_key = args.api_key
         db_url = args.database
@@ -84,37 +88,48 @@ def main():
         project_name = args.projectname
         firebase_config = set_config(api_key, db_url, bucket_url, app_id, project_name)
 
-    firebase_obj = FirebaseObj(firebase_config)
+    run_scan(firebase_config, email=email, password=password, args=args)
 
-    # Set values (These have defaults)
-    env = args.env
-    email = args.email
-    password = args.password
+
+def run_scan(firebase_config, email=None, password=None, args=None):
+    firebase_obj = FirebaseObj(firebase_config)
+    api_key = firebase_config.get('apiKey')
+    db_url = firebase_config.get('databaseURL')
+    bucket_url = firebase_config.get('storageBucket')
+    app_id = firebase_config.get('appId')
 
     # Start scan print
     print("Started firebase scan...")
 
+    if args:
+        bucket_write = args.bucket_write
+        bucket_list = args.bucket_list
+        bucket_download = args.bucket_download
+    else:
+        bucket_write = 'poc.txt'
+        bucket_list = False
+        bucket_download = False
+
     # Check for bucket listing misconfig
-    if bucket_url and (args.scan_bucket or args.all):
-        storage_bucket(firebase_obj, bucket_write=args.bucket_write, bucket_list=args.bucket_list,
-                       bucket_download=args.bucket_download)
+    if bucket_url:
+        storage_bucket(firebase_obj, bucket_write=bucket_write, bucket_list=bucket_list,
+                       bucket_download=bucket_download)
 
     # Check for databse READ access.
-    if db_url and (args.scan_database or args.all):
+    if db_url:
         database_misconfig(db_url, api_key)
 
     # Check for interesting configs - taken from
     # https://cloud.hacktricks.xyz/pentesting-cloud/gcp-security/gcp-services/gcp-firebase-enum
-    if args.scan_remote_config or args.all:
-        look_for_configs(app_id, api_key, env)
+    look_for_configs(app_id, api_key)
 
     # Check for user registration misconfig
-    if args.scan_registration or args.all:
-        if user_registration(api_key, email, password):
-            # Sign in with the user credentials to get idToken.
-            firebase_obj.set_user_true(email, password)
-            # Start authenticated enumeration on bucket and DB.
-            firebase_obj.authenticated_database_enum()
+    if user_registration(api_key, email, password):
+        # Sign in with the user credentials to get idToken.
+        firebase_obj.set_user_true(email, password)
+
+        # Authenticated firebase enum for bucket write/read and DB write/read.
+        firebase_obj.authenticated_enum()
 
     # Close pyrebase SDK - basically just delete user account if registered
     firebase_obj.close()
@@ -122,3 +137,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
