@@ -1,34 +1,29 @@
 import requests
-import pyrebase
+from urllib.parse import urlencode
 from full_bucket_filenames_extract import extract
+import json
 
 # Disable requests warnings
 requests.packages.urllib3.disable_warnings()
 
 
 class FirebaseObj:
-    def __init__(self, config: dict):
+    def __init__(self, config: dict, session: requests.Session):
         self.config = config
         if self.config.get('databaseURL') is None:
             self.config['databaseURL'] = ''
-
-        self.firebase = pyrebase.initialize_app(config)
-        self.storage = self.firebase.storage()
-        self.database = self.firebase.database()
-        self.auth = self.firebase.auth()
         self.user = None
+        self.session = session
+        self.bucket_url = f'https://firebasestorage.googleapis.com/v0/b/{self.config.get("storageBucket")}/o'
+        self.api_key = self.config.get('apiKey')
 
     def set_user_true(self, email, password):
         # Authenticate with pyrebase built in method, but it has an endpoint that sometimes returns "Wrong password",
         # Even though the credentials are right.
-        try:
-            self.user = self.auth.sign_in_with_email_and_password(email, password)
-        except Exception:
-            url = f'https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={self.config["apiKey"]}'
-            data = {"email": email, "password": password, "returnSecureToken": "true"}
-            response = requests.post(url, json=data, verify=False)
-            refresh_token = response.json().get('refreshToken')
-            self.user = self.auth.refresh(refresh_token)
+        url = f'https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={self.config["apiKey"]}'
+        data = {"email": email, "password": password, "returnSecureToken": "true"}
+        response = self.session.post(url, json=data, verify=False)
+        self.user = response.json()
 
     def authenticated_enum(self):
         # Check if storage bucket is vulnerable with idToken
@@ -47,11 +42,19 @@ class FirebaseObj:
 
     def authenticated_database_enum(self):
         try:
-            database_listing = self.database.child().get(token=self.user['idToken']).val()
-            if database_listing:
+            database_listing_url = f'{self.config.get("databaseURL")}/.json?auth={self.user["idToken"]}'
+            database_listing = self.session.get(database_listing_url)
+            if database_listing.status_code == 200:
                 print('[CRITICAL] Database is exposed with user credentials!')
         except Exception:
             print("Couldn't enumerate database with user credentials.")
+
+    def delete_user_account(self, id_token):
+        request_ref = f"https://www.googleapis.com/identitytoolkit/v3/relyingparty/deleteAccount?key={self.api_key}"
+        headers = {"content-type": "application/json; charset=UTF-8"}
+        data = json.dumps({"idToken": id_token})
+        request_object = requests.post(request_ref, headers=headers, data=data)
+        return request_object.json()
 
     def close(self):
         # Delete user if there is
@@ -70,15 +73,16 @@ def storage_bucket(firebase_obj: FirebaseObj, id_token=None, bucket_write=None,
         if id_token:
             authenticated_enum = {"read": False, "write": False}
             # Try to list bucket
-            url = f"https://firebasestorage.googleapis.com/v0/b/{firebase_storage_bucket}/o?maxResults=100&token={id_token}"
+            url = f"{firebase_obj.bucket_url}?maxResults=100&token={id_token}"
             message = "[HIGH] The storage bucket listing is exposed with USER CREDENTIALS! - to download/list files, use the proper flag. - %s"
             authenticated_enum['read'] = True  # Update status
 
         else:
-            url = f"https://firebasestorage.googleapis.com/v0/b/{firebase_storage_bucket}/o?maxResults=100"
+            url = f"{firebase_obj.bucket_url}?maxResults=100"
             message = "[HIGH] The storage bucket listing is exposed! - to download/list files, use the proper flag. - %s"
 
-        response = requests.get(url, headers=headers, verify=False, proxies={'http': '127.0.0.1:8080', 'https': '127.0.0.1:8080'})
+        response = firebase_obj.session.get(url, headers=headers, verify=False, proxies={'http': '127.0.0.1:8080',
+                                                                                         'https': '127.0.0.1:8080'})
         if response.status_code == 200:
             print(message % url)
             if bucket_list:
@@ -88,8 +92,8 @@ def storage_bucket(firebase_obj: FirebaseObj, id_token=None, bucket_write=None,
                 # Check write permissions. bucket_write will contain the name of the file to upload.
                 bucket_write_res = bucket_write_permission(firebase_obj, bucket_write, id_token=id_token)
                 if bucket_write_res:
-                    extracted_bucket_files = extract(firebase_storage_bucket, firebase_obj.config['apiKey'])
-
+                    extracted_bucket_files = extract(firebase_storage_bucket, firebase_obj.config['apiKey'],
+                                                     session=firebase_obj.session)
 
             if bucket_download:
                 bucket_download_file(firebase_obj, bucket_download)
@@ -105,7 +109,7 @@ def storage_bucket(firebase_obj: FirebaseObj, id_token=None, bucket_write=None,
     return False
 
 
-def user_registration(api_key, email, password):
+def user_registration(api_key, email, password, session: requests.Session):
     # This script looks for user registration misconfiguration. This is a high-severity finding,
     # as remote attacker can create a firebase user and potentially access sensitive information,
     # manipulate entries, or even compromise the database.
@@ -116,7 +120,7 @@ def user_registration(api_key, email, password):
         "password": password,
         "returnSecureToken": "true"
     }
-    response = requests.post(user_registartion_url, json=data, verify=False, proxies={'http':'127.0.0.1:8080', 'https': '127.0.0.1:8080'})
+    response = session.post(user_registartion_url, json=data, verify=False)
     
     if response.status_code == 200 and 'idToken' in response.text:
         # User registration enabled. If disabled, the message will be 'NO_FORMAT' or 'ADMIN_OPERATION_ONLY', etc.
@@ -134,20 +138,20 @@ def user_registration(api_key, email, password):
     return False
 
 
-def database_misconfig(firebase_db_url, api_key=None):
+def database_misconfig(firebase_db_url, session:requests.Session, api_key=None):
     # Check for database misconfig.
     # Reference: https://atos.net/en/lp/securitydive/misconfigured-firebase-a-real-time-cyber-threat
     if 'http' not in firebase_db_url:
         firebase_db_url = f'https://{firebase_db_url}'
     try:
         firebase_expose_url = f'{firebase_db_url}/.json'
-        response = requests.get(firebase_expose_url, verify=False)
+        response = session.get(firebase_expose_url, verify=False)
         if response.status_code == 200:
             print(f"[CRITICAL] Firebase Database is exposed!!: {firebase_expose_url}")
             return True
         # If api key is given, check if it can be accessed with api key.
         elif api_key:
-            response = requests.get(f'{firebase_expose_url}?auth={api_key}', verify=False, proxies={'http':'127.0.0.1:8080', 'https': '127.0.0.1:8080'})
+            response = session.get(f'{firebase_expose_url}?auth={api_key}', verify=False)
             if response.status_code == 200:
                 print(f"Firebase Database is exposed!!: \n{firebase_expose_url}?auth={api_key}")
                 return True
@@ -159,7 +163,7 @@ def database_misconfig(firebase_db_url, api_key=None):
         return False
     
 
-def look_for_configs(app_id: str, api_key: str, env='PROD'):
+def look_for_configs(app_id: str, api_key: str, session: requests.Session, env='PROD'):
     # This script is for fetching remote config, sometimes has sensitive info.
     # Reference: https://cloud.hacktricks.xyz/pentesting-cloud/gcp-security/gcp-services/gcp-firebase-enum
     try:
@@ -178,7 +182,7 @@ def look_for_configs(app_id: str, api_key: str, env='PROD'):
     }
 
     try:
-        response = requests.post(end_url, json=data, headers=headers, verify=False, proxies={'http':'127.0.0.1:8080', 'https': '127.0.0.1:8080'})
+        response = session.post(end_url, json=data, headers=headers, verify=False, proxies={'http':'127.0.0.1:8080', 'https': '127.0.0.1:8080'})
         if "NO_TEMPLATE" in response.text:
             return False  # No info
         else:
@@ -190,11 +194,16 @@ def look_for_configs(app_id: str, api_key: str, env='PROD'):
 
 def bucket_write_permission(firebase_client, write_file_name, id_token=None):
     try:
-        response = firebase_client.storage.child(f'{write_file_name}').put(write_file_name, id_token)
-        if response:
+        write_url = f'{firebase_client.bucket_url}?name={write_file_name}'
+        try:
+            file_obj = open(write_file_name, 'rb')
+        except Exception:
+            file_obj = write_file_name
+        response = firebase_client.session.get(write_url, data=file_obj, verify=False)
+        if response.status_code == 204:
             print(f'[CRITICAL] File uploaded to the bucket: {write_file_name}, bucket: {firebase_client.config.get("storageBucket")}, idToken: {id_token}')
             # Delete the file
-            firebase_client.storage.child(write_file_name).delete(write_file_name, None)
+            firebase_client.session.delete(write_url, verify=False)
             return response
     except Exception:
         return False
@@ -202,12 +211,11 @@ def bucket_write_permission(firebase_client, write_file_name, id_token=None):
 
 def bucket_download_file(firebase_client: FirebaseObj, file_name):
     try:
-        if '/' in file_name:
-            download_name = file_name.split('/')[-1]
-        else:
-            download_name = file_name
-        firebase_client.storage.child(file_name).download(path=file_name, filename=f'./{download_name}')
-        print(f'Successfuly download the file to: ./{file_name}')
+        encoded_filename = urlencode(file_name)
+        file_url = f'{firebase_client.bucket_url}/{encoded_filename}?alt=media'
+        response = firebase_client.session.get(file_url, verify=False)
+        if response.status_code == 200:
+            print(f'File content: {response.content}')
     except Exception as err:
         print(f"Couldn't download the file: {err}")
 

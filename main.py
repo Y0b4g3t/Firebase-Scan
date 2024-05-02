@@ -50,6 +50,7 @@ def main():
     # Load a firebase json config file/from URL instead of using all the switches
     parser.add_argument('-f', '--file', type=str, action='store', help='JSON file of the Firebase config.')
     parser.add_argument('-u', '--url', type=str, action='store', help='URL of where the Firebase config is presented.')
+    parser.add_argument('--proxy', type=str, action='store', help='For proxy.', default=None)
 
     # Scan options
     scan_options_group = parser.add_argument_group('Storage Bucket Enumeration')
@@ -88,15 +89,21 @@ def main():
         project_name = args.projectname
         firebase_config = set_config(api_key, db_url, bucket_url, app_id, project_name)
 
-    run_scan(firebase_config, email=email, password=password, args=args)
+    run_scan(firebase_config, email=email, password=password, args=args, proxy=args.proxy)
 
 
-def run_scan(firebase_config, email=None, password=None, args=None):
-    firebase_obj = FirebaseObj(firebase_config)
+def run_scan(firebase_config, email=None, password=None, args=None, proxy=None):
     api_key = firebase_config.get('apiKey')
     db_url = firebase_config.get('databaseURL')
     bucket_url = firebase_config.get('storageBucket')
     app_id = firebase_config.get('appId')
+    req_session = requests.Session()
+    req_session.proxies = {
+        "http": proxy,
+        "https": proxy
+    }
+    firebase_obj = FirebaseObj(firebase_config, req_session)
+
 
     # Start scan print
     print("Started firebase scan...")
@@ -121,10 +128,10 @@ def run_scan(firebase_config, email=None, password=None, args=None):
 
     # Check for interesting configs - taken from
     # https://cloud.hacktricks.xyz/pentesting-cloud/gcp-security/gcp-services/gcp-firebase-enum
-    look_for_configs(app_id, api_key)
+    look_for_configs(app_id, api_key, session=req_session)
 
     # Check for user registration misconfig
-    if user_registration(api_key, email, password):
+    if user_registration(api_key, email, password, session=req_session):
         # Sign in with the user credentials to get idToken.
         firebase_obj.set_user_true(email, password)
 
