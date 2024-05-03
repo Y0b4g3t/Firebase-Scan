@@ -59,7 +59,7 @@ class FirebaseObj:
     def close(self):
         # Delete user if there is
         if self.user:
-            self.auth.delete_user_account(self.user['idToken'])
+            self.delete_user_account(self.user['idToken'])
 
 
 def storage_bucket(firebase_obj: FirebaseObj, id_token=None, bucket_write=None,
@@ -81,8 +81,7 @@ def storage_bucket(firebase_obj: FirebaseObj, id_token=None, bucket_write=None,
             url = f"{firebase_obj.bucket_url}?maxResults=100"
             message = "[HIGH] The storage bucket listing is exposed! - to download/list files, use the proper flag. - %s"
 
-        response = firebase_obj.session.get(url, headers=headers, verify=False, proxies={'http': '127.0.0.1:8080',
-                                                                                         'https': '127.0.0.1:8080'})
+        response = firebase_obj.session.get(url, headers=headers, verify=False)
         if response.status_code == 200:
             print(message % url)
             if bucket_list:
@@ -182,7 +181,7 @@ def look_for_configs(app_id: str, api_key: str, session: requests.Session, env='
     }
 
     try:
-        response = session.post(end_url, json=data, headers=headers, verify=False, proxies={'http':'127.0.0.1:8080', 'https': '127.0.0.1:8080'})
+        response = session.post(end_url, json=data, headers=headers, verify=False)
         if "NO_TEMPLATE" in response.text:
             return False  # No info
         else:
@@ -199,8 +198,8 @@ def bucket_write_permission(firebase_client, write_file_name, id_token=None):
             file_obj = open(write_file_name, 'rb')
         except Exception:
             file_obj = write_file_name
-        response = firebase_client.session.get(write_url, data=file_obj, verify=False)
-        if response.status_code == 204:
+        response = firebase_client.session.post(write_url, data=file_obj, verify=False)
+        if response.status_code == 204 or response.status_code == 200:
             print(f'[CRITICAL] File uploaded to the bucket: {write_file_name}, bucket: {firebase_client.config.get("storageBucket")}, idToken: {id_token}')
             # Delete the file
             firebase_client.session.delete(write_url, verify=False)

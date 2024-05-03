@@ -16,7 +16,7 @@ def firebase_regex_search(response_text):
     }
 
     # Combine patterns into a single regex pattern
-    combined_pattern = "|".join(f"({pattern})" for pattern in patterns.values())
+    combined_pattern = r"|".join(f"({pattern})" for pattern in patterns.values())
 
     matches = re.findall(combined_pattern, response_text)
 
