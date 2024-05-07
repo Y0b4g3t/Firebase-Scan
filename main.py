@@ -140,7 +140,7 @@ def run_scan(firebase_config, email=None, password=None, args=None, proxy=None):
         firebase_obj.set_user_true(email, password)
 
         # Authenticated firebase enum for bucket write/read and DB write/read.
-        firebase_obj.authenticated_enum()
+        firebase_obj.authenticated_enum(bucket_write=bucket_write)
 
     # Close pyrebase SDK - basically just delete user account if registered
     firebase_obj.close()

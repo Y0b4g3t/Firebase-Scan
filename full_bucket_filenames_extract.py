@@ -9,6 +9,14 @@ def get_names_from_response(response_json):
         file_names.append(item['name'])
 
 
+def analyze_names():
+    for name in file_names:
+        name = str(name)
+        if name.endswith(('.js', '.html', '.php', '.json')):
+            return name
+    return False
+
+
 def extract(bucket_url, api_key, session: requests.Session):
     global file_names
     file_names = []
@@ -25,6 +33,10 @@ def extract(bucket_url, api_key, session: requests.Session):
         response = session.get(new_url, headers=headers, verify=False)
         get_names_from_response(response.json())
 
+    # Analyze file names to assess the risk
+    analyzed_response = analyze_names()
+    if analyzed_response:
+        print(f"[CRITICAL] Write permissions with sensitive files in the bucket! Example: {analyzed_response}")
     return file_names
 
 

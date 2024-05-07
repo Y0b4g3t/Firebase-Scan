@@ -25,10 +25,10 @@ class FirebaseObj:
         response = self.session.post(url, json=data, verify=False)
         self.user = response.json()
 
-    def authenticated_enum(self):
+    def authenticated_enum(self, bucket_write=None):
         # Check if storage bucket is vulnerable with idToken
         try:
-            if storage_bucket(self, id_token=self.user['idToken']) is False:
+            if storage_bucket(self, id_token=self.user['idToken'], bucket_write=bucket_write) is False:
                 print("Couldn't enumerate storage bucket with user credentials.")
         except Exception:
             # print("Couldn't enumerate storage bucket with user credentials.")
@@ -66,19 +66,18 @@ def storage_bucket(firebase_obj: FirebaseObj, id_token=None, bucket_write=None,
                    bucket_list=False, bucket_download=False):
     # Check for storage bucket listing
     try:
-        headers = {"Authorization": f"Bearer {firebase_obj.config['apiKey']}"}
+        if id_token:
+            headers = {"Authorization": f"Bearer {id_token}"}
+        else:
+            headers = {"Authorization": f"Bearer {firebase_obj.config['apiKey']}"}
         firebase_storage_bucket = firebase_obj.config['storageBucket']
-
+        url = f"{firebase_obj.bucket_url}?maxResults=100"
         # If ID TOKEN provided, will try to list files with user token.
         if id_token:
-            authenticated_enum = {"read": False, "write": False}
             # Try to list bucket
-            url = f"{firebase_obj.bucket_url}?maxResults=100&token={id_token}"
             message = "[HIGH] The storage bucket listing is exposed with USER CREDENTIALS! - to download/list files, use the proper flag. - %s"
-            authenticated_enum['read'] = True  # Update status
 
         else:
-            url = f"{firebase_obj.bucket_url}?maxResults=100"
             message = "[HIGH] The storage bucket listing is exposed! - to download/list files, use the proper flag. - %s"
 
         response = firebase_obj.session.get(url, headers=headers, verify=False)
@@ -90,9 +89,10 @@ def storage_bucket(firebase_obj: FirebaseObj, id_token=None, bucket_write=None,
             if bucket_write:
                 # Check write permissions. bucket_write will contain the name of the file to upload.
                 bucket_write_res = bucket_write_permission(firebase_obj, bucket_write, id_token=id_token)
-                if bucket_write_res:
-                    extracted_bucket_files = extract(firebase_storage_bucket, firebase_obj.config['apiKey'],
-                                                     session=firebase_obj.session)
+
+                # if bucket_write_res:
+                #     extracted_bucket_files = extract(firebase_storage_bucket, firebase_obj.config['apiKey'],
+                #                                      session=firebase_obj.session)
 
             if bucket_download:
                 bucket_download_file(firebase_obj, bucket_download)
@@ -193,16 +193,21 @@ def look_for_configs(app_id: str, api_key: str, session: requests.Session, env='
 
 def bucket_write_permission(firebase_client, write_file_name, id_token=None):
     try:
-        write_url = f'{firebase_client.bucket_url}?name={write_file_name}'
+        headers = {'Authorization': f'Bearer {firebase_client.api_key}'}
+        if id_token:
+            write_url = f'{firebase_client.bucket_url}?name={write_file_name}'
+            headers = {'Authorization': f'Bearer {id_token}'}
+        else:
+            write_url = f'{firebase_client.bucket_url}?name={write_file_name}'
         try:
             file_obj = open(write_file_name, 'rb')
         except Exception:
             file_obj = write_file_name
-        response = firebase_client.session.post(write_url, data=file_obj, verify=False)
+        response = firebase_client.session.post(write_url, data=file_obj, verify=False, headers=headers)
         if response.status_code == 204 or response.status_code == 200:
             print(f'[CRITICAL] File uploaded to the bucket: {write_file_name}, bucket: {firebase_client.config.get("storageBucket")}, idToken: {id_token}')
             # Delete the file
-            firebase_client.session.delete(write_url, verify=False)
+            firebase_client.session.delete(write_url, verify=False, headers=headers)
             return response
     except Exception:
         return False
