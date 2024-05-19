@@ -3,7 +3,8 @@ import json
 from firebase_scan import storage_bucket, database_misconfig, user_registration, look_for_configs, FirebaseObj
 from firebase_config_fetcher import firebase_regex_search
 import requests
-import pyrebase
+
+
 DESCRIPTION = """
 Title: Firebase Misconfiguration scanning tool.
 Description: This tool is used for testing various firebase common misconfigurations, like

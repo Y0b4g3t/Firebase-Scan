@@ -71,7 +71,7 @@ def storage_bucket(firebase_obj: FirebaseObj, id_token=None, bucket_write=None,
             headers = {"Authorization": f"Bearer {id_token}"}
         else:
             headers = {"Authorization": f"Bearer {firebase_obj.config['apiKey']}"}
-        firebase_storage_bucket = firebase_obj.config['storageBucket']
+
         url = f"{firebase_obj.bucket_url}?maxResults=100"
         # If ID TOKEN provided, will try to list files with user token.
         if id_token:
@@ -98,10 +98,6 @@ def storage_bucket(firebase_obj: FirebaseObj, id_token=None, bucket_write=None,
             if bucket_download:
                 bucket_download_file(firebase_obj, bucket_download)
 
-            if id_token:
-                return authenticated_enum
-            else:
-                return True
     except Exception as err:
         print(err)
         pass
