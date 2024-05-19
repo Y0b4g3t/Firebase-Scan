@@ -14,6 +14,7 @@ class FirebaseObj:
             self.config['databaseURL'] = ''
         self.user = None
         self.session = session
+        self.session.verify = False
         self.bucket_url = f'https://firebasestorage.googleapis.com/v0/b/{self.config.get("storageBucket")}/o'
         self.api_key = self.config.get('apiKey')
 
@@ -53,7 +54,7 @@ class FirebaseObj:
         request_ref = f"https://www.googleapis.com/identitytoolkit/v3/relyingparty/deleteAccount?key={self.api_key}"
         headers = {"content-type": "application/json; charset=UTF-8"}
         data = json.dumps({"idToken": id_token})
-        request_object = requests.post(request_ref, headers=headers, data=data)
+        request_object = self.session.post(request_ref, headers=headers, data=data)
         return request_object.json()
 
     def close(self):
