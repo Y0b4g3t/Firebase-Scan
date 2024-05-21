@@ -115,9 +115,6 @@ def run_scan(firebase_config, email=None, password=None, args=None, proxy=None):
     firebase_obj = FirebaseObj(firebase_config, req_session, args=args)
 
 
-    # Start scan print
-    print("Started firebase scan...")
-
     if args:
         bucket_write = args.bucket_write
         bucket_list = args.bucket_list
