@@ -2,21 +2,32 @@ import requests
 from urllib.parse import urlencode
 from full_bucket_filenames_extract import extract
 import json
+from requests.models import PreparedRequest, Response
+from urllib.parse import urlparse
+import time
+import socket
 
 # Disable requests warnings
 requests.packages.urllib3.disable_warnings()
 
+PRIORITY_LOW = 2
+PRIORITY_MEDIUM = 3
+PRIORITY_HIGH = 4
+
 
 class FirebaseObj:
-    def __init__(self, config: dict, session: requests.Session):
+    def __init__(self, config: dict, session: requests.Session, args):
         self.config = config
         if self.config.get('databaseURL') is None:
             self.config['databaseURL'] = ''
         self.user = None
         self.session = session
         self.session.verify = False
+        self.session.headers = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/115.0'}
         self.bucket_url = f'https://firebasestorage.googleapis.com/v0/b/{self.config.get("storageBucket")}/o'
         self.api_key = self.config.get('apiKey')
+        self.redcon_mode = args.redcon
+        self.scope = args.scope
 
     def set_user_true(self, email, password):
         # Authenticate with pyrebase built in method, but it has an endpoint that sometimes returns "Wrong password",
@@ -44,9 +55,15 @@ class FirebaseObj:
     def authenticated_database_enum(self):
         try:
             database_listing_url = f'{self.config.get("databaseURL")}/.json?auth={self.user["idToken"]}'
-            database_listing = self.session.get(database_listing_url)
+            database_listing = self.session.get(database_listing_url, verify=False)
             if database_listing.status_code == 200:
-                print('[CRITICAL] Database is exposed with user credentials!')
+                print('[READ-DB] The Firebase RealtimeDB is publicly accessible to list and read data. This was possible with combining a user-registration misconfiguration.')
+            
+            database_write_url = f'{self.config.get("databaseURL")}/pocpocpoc.json?auth={self.user["idToken"]}'
+            database_write = self.session.post(database_write_url, verify=False)
+            if database_write.status_code == 200 or database_write.status_code == 204:
+                print('[WRITE-DB] The FIrebase RealtimeDB is publicly accessible to write and override data. This was possible with combining a user-registration misconfiguration.')
+
         except Exception:
             print("Couldn't enumerate database with user credentials.")
 
@@ -56,11 +73,76 @@ class FirebaseObj:
         data = json.dumps({"idToken": id_token})
         request_object = self.session.post(request_ref, headers=headers, data=data)
         return request_object.json()
+    
+    def print_message(self, response_obj, description, priority):
+        if self.redcon_mode:
+            print(json.dumps(get_results_structure(response_obj, description, priority, self.scope)))
+        else:
+            print(description)
 
     def close(self):
         # Delete user if there is
         if self.user:
             self.delete_user_account(self.user['idToken'])
+
+
+def get_results_structure(response_obj, description, priority, scope):
+    method = response_obj.request.method
+    url = response_obj.url
+    request_headers = response_obj.request.headers
+    request_body = response_obj.request.body
+
+    raw_request = create_raw_http_request(method, url, request_headers, request_body)
+    raw_response = create_raw_http_response(response_obj)
+
+    ip = socket.gethostbyname(scope)
+
+    return {
+        'scanner_id': 'redcon',
+        'data': {
+            'scope': scope,
+            'name': scope,
+            'type': 'vulnerability',
+            'ip': ip,
+            'port': '443',
+            'date': int(time.time()),
+            'cve': None,
+            'tags': ['Misconfiguration'],
+            'description': description,
+            'exploit_demos': [{
+                'request_method': method,
+                'status_code': response_obj.status_code,
+                'request_path': url,
+                'raw_request': raw_request,
+                'response': raw_response
+            }],
+            'user': None,
+            'password': None,
+            'priority': priority
+        }
+    }
+    
+
+def create_raw_http_request(method: str, url: str, headers: dict = None, body: str = None) -> str:
+    # Prepare the request
+    req = PreparedRequest()
+    req.prepare(method=method, url=url, headers=headers, data=body)
+    
+    # Format the raw HTTP request
+    raw_request = f"{req.method} {req.path_url} HTTP/1.1\n"
+    raw_request += '\n'.join(f"{k}: {v}" for k, v in req.headers.items())
+    if req.body:
+        raw_request += f"\n\n{req.body}"
+    return raw_request
+
+
+def create_raw_http_response(response: Response) -> str:
+    # Format the raw HTTP response
+    raw_response = f"HTTP/1.1 {response.status_code} {response.reason}\n"
+    raw_response += '\n'.join(f"{k}: {v}" for k, v in response.headers.items())
+    if response.text:
+        raw_response += f"\n\n{response.text}"
+    return raw_response
 
 
 def storage_bucket(firebase_obj: FirebaseObj, id_token=None, bucket_write=True,
@@ -76,14 +158,14 @@ def storage_bucket(firebase_obj: FirebaseObj, id_token=None, bucket_write=True,
         # If ID TOKEN provided, will try to list files with user token.
         if id_token:
             # Try to list bucket
-            message = "[HIGH] The storage bucket listing is exposed with USER CREDENTIALS! - to download/list files, use the proper flag. - %s"
+            message = "[READ-BUCKET] The Firebase Storage Bucket is publicly accessible to list and read. It is possible to see sensitive information such as source code, PII, credentials and more. This was possible combining a User-Registration misconfig."
 
         else:
-            message = "[HIGH] The storage bucket listing is exposed! - to download/list files, use the proper flag. - %s"
+            message = "[READ-BUCKET] The Firebase Storage Bucket is publicly accessible to list and read. It is possible to see sensitive information such as source code, PII, credentials and more."
 
         response = firebase_obj.session.get(url, headers=headers, verify=False)
         if response.status_code == 200:
-            print(message % url)
+            firebase_obj.print_message(response, message, PRIORITY_MEDIUM)
             if bucket_list:
                 print(response.text)
 
@@ -105,11 +187,11 @@ def storage_bucket(firebase_obj: FirebaseObj, id_token=None, bucket_write=True,
     return False
 
 
-def user_registration(api_key, email, password, session: requests.Session):
+def user_registration(firebase_obj: FirebaseObj, api_key, email, password, session: requests.Session):
     # This script looks for user registration misconfiguration. This is a high-severity finding,
     # as remote attacker can create a firebase user and potentially access sensitive information,
     # manipulate entries, or even compromise the database.
-
+    message = "[REGISTRATION] Unauthenticated user registration is enabled. An attacker can access private apps, or run queries to the Database and Storage Bucket if misconfigured (authorization bypass)."
     user_registartion_url = f'https://identitytoolkit.googleapis.com/v1/accounts:signUp?key={api_key}'
     data = {
         "email": email,
@@ -117,15 +199,16 @@ def user_registration(api_key, email, password, session: requests.Session):
         "returnSecureToken": "true"
     }
     response = session.post(user_registartion_url, json=data, verify=False)
+    message = "[REGISTRATION] Unauthenticated user registration is enabled. An attacker can access private apps, or run queries to the Database and Storage Bucket if misconfigured (authorization bypass)."
     
     if response.status_code == 200 and 'idToken' in response.text:
         # User registration enabled. If disabled, the message will be 'NO_FORMAT' or 'ADMIN_OPERATION_ONLY', etc.
-        print(f"[HIGH] User registration is enabled! - REGISTERED USER: {email}{password}")
+        firebase_obj.print_message(response, message, PRIORITY_MEDIUM)
         return True
     
     elif response.status_code == 400 and 'EMAIL_EXISTS' in response.text:
         # User registration enabled. If disabled, the message will be 'NO_FORMAT' or 'ADMIN_OPERATION_ONLY', etc.
-        print(f"[HIGH] User registration is enabled! - REGISTERED USER: {email}{password}")
+        firebase_obj.print_message(response, message, PRIORITY_MEDIUM)
         return True
     
     # elif 'ADMIN_ONLY_OPERATION' not in response.text and 'CONFIGURATION_NOT_FOUND' not in response.text:
@@ -134,7 +217,8 @@ def user_registration(api_key, email, password, session: requests.Session):
     return False
 
 
-def database_misconfig(firebase_db_url, session:requests.Session, api_key=None):
+def database_misconfig(firebase_obj: FirebaseObj, session:requests.Session, api_key=None):
+    firebase_db_url = firebase_obj.config.get('databaseURL')
     # Check for database misconfig.
     # Reference: https://atos.net/en/lp/securitydive/misconfigured-firebase-a-real-time-cyber-threat
     if 'http' not in firebase_db_url:
@@ -143,13 +227,14 @@ def database_misconfig(firebase_db_url, session:requests.Session, api_key=None):
         firebase_expose_url = f'{firebase_db_url}/.json'
         response = session.get(firebase_expose_url, verify=False)
         if response.status_code == 200:
-            print(f"[CRITICAL] Firebase Database is exposed!!: {firebase_expose_url}")
+            firebase_obj.print_message(response, "[READ-DB] The Firebase RealtimeDB is publicly accessible to list and read data.", PRIORITY_MEDIUM)
             return True
         # If api key is given, check if it can be accessed with api key.
         elif api_key:
             response = session.get(f'{firebase_expose_url}?auth={api_key}', verify=False)
             if response.status_code == 200:
-                print(f"Firebase Database is exposed!!: \n{firebase_expose_url}?auth={api_key}")
+                message = "[READ-DB] The Firebase RealtimeDB is publicly accessible to list and read data. Thsi was possible with combining a user-registration misconfiguration."
+                firebase_obj.print_message(response, message, PRIORITY_MEDIUM)
                 return True
         
         # Not vulnerable message.
@@ -159,7 +244,7 @@ def database_misconfig(firebase_db_url, session:requests.Session, api_key=None):
         return False
     
 
-def look_for_configs(app_id: str, api_key: str, session: requests.Session, env='PROD'):
+def look_for_configs(firebase_obj: FirebaseObj, app_id: str, api_key: str, session: requests.Session, env='PROD'):
     # This script is for fetching remote config, sometimes has sensitive info.
     # Reference: https://cloud.hacktricks.xyz/pentesting-cloud/gcp-security/gcp-services/gcp-firebase-enum
     try:
@@ -183,7 +268,8 @@ def look_for_configs(app_id: str, api_key: str, session: requests.Session, env='
             return False  # No info
         else:
             # Print information
-            print(f"[INFO] Might found interesting information from remote config:\n {response.text}")
+            message = "[CONFIG] Remote Configuration feature enabled for the public Firebase API key. Sensitive data like credentials, environment variables and more might be exposed."
+            firebase_obj.print_message(response, message, PRIORITY_LOW)
     except Exception as err:
         print(f"Error when looking for remote config: {err}")
 
@@ -202,7 +288,8 @@ def bucket_write_permission(firebase_client, write_file_name="poc.txt", id_token
             file_obj = write_file_name
         response = firebase_client.session.post(write_url, data=file_obj, verify=False, headers=headers)
         if response.status_code == 204 or response.status_code == 200:
-            print(f'[CRITICAL] File uploaded to the bucket: {write_file_name}, bucket: {firebase_client.config.get("storageBucket")}, idToken: {id_token}')
+            message = '[WRITE-BUCKET] The Firebase Storage Bucket is publicly accessible to write/delete files. An attacker can override files that are being called on the asset, which can lead to Stored-XSS/Deface/RCE.'
+            firebase_client.print_message(response, message, PRIORITY_HIGH)
             # Delete the file
             firebase_client.session.delete(write_url, verify=False, headers=headers)
             return response

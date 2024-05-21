@@ -47,6 +47,7 @@ def main():
     parser.add_argument('-p', '--password', type=str, action='store', help='Password for user registration',
                         default="asdsasd")
     parser.add_argument('--projectname', type=str, action='store', help='Project name')
+    parser.add_argument('--scope', action='store', type=str, default=None, help='Scope domain.')
     
     # Load a firebase json config file/from URL instead of using all the switches
     parser.add_argument('-f', '--file', type=str, action='store', help='JSON file of the Firebase config.')
@@ -70,6 +71,10 @@ def main():
                             help='Print the bucket listing.', default=False)
     storage_enum_group.add_argument('-bd', '--bucket_download', action='store', type=str,
                             help='Download a file in this directory.', default=False)
+    
+    # Output options
+    output_group = parser.add_argument_group('Output options')
+    output_group.add_argument('-rm', '--redcon', action='store_true', default=False, help='Output in JSON for Redcon.')
 
     args = parser.parse_args()
     # Set values (These have defaults)
@@ -107,7 +112,7 @@ def run_scan(firebase_config, email=None, password=None, args=None, proxy=None):
         "http": proxy,
         "https": proxy
     }
-    firebase_obj = FirebaseObj(firebase_config, req_session)
+    firebase_obj = FirebaseObj(firebase_config, req_session, args=args)
 
 
     # Start scan print
@@ -129,14 +134,14 @@ def run_scan(firebase_config, email=None, password=None, args=None, proxy=None):
 
     # Check for databse READ access.
     if db_url:
-        database_misconfig(db_url, api_key)
+        database_misconfig(firebase_obj, api_key)
 
     # Check for interesting configs - taken from
     # https://cloud.hacktricks.xyz/pentesting-cloud/gcp-security/gcp-services/gcp-firebase-enum
-    look_for_configs(app_id, api_key, session=req_session)
+    look_for_configs(firebase_obj, app_id, api_key, session=req_session)
 
     # Check for user registration misconfig
-    if user_registration(api_key, email, password, session=req_session):
+    if user_registration(firebase_obj, api_key, email, password, session=req_session):
         # Sign in with the user credentials to get idToken.
         firebase_obj.set_user_true(email, password)
 
