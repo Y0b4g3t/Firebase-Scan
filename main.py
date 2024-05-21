@@ -65,7 +65,7 @@ def main():
     storage_enum_group = parser.add_argument_group('Storage Bucket Enumeration')
     storage_enum_group.add_argument('-bw', '--bucket_write', type=str, action='store',
                             help='Attempt write action against the storage bucket. File will be saved exactly to the '
-                                 'path you choose.', default=False)
+                                 'path you choose.', default='poc.txt')
     storage_enum_group.add_argument('-bl', '--bucket_list', action='store_true',
                             help='Print the bucket listing.', default=False)
     storage_enum_group.add_argument('-bd', '--bucket_download', action='store', type=str,

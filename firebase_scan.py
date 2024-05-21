@@ -63,7 +63,7 @@ class FirebaseObj:
             self.delete_user_account(self.user['idToken'])
 
 
-def storage_bucket(firebase_obj: FirebaseObj, id_token=None, bucket_write=None,
+def storage_bucket(firebase_obj: FirebaseObj, id_token=None, bucket_write=True,
                    bucket_list=False, bucket_download=False):
     # Check for storage bucket listing
     try:
@@ -188,7 +188,7 @@ def look_for_configs(app_id: str, api_key: str, session: requests.Session, env='
         print(f"Error when looking for remote config: {err}")
 
 
-def bucket_write_permission(firebase_client, write_file_name, id_token=None):
+def bucket_write_permission(firebase_client, write_file_name="poc.txt", id_token=None):
     try:
         headers = {'Authorization': f'Bearer {firebase_client.api_key}'}
         if id_token:
