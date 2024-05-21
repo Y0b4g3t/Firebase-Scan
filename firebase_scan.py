@@ -179,7 +179,7 @@ def look_for_configs(app_id: str, api_key: str, session: requests.Session, env='
 
     try:
         response = session.post(end_url, json=data, headers=headers, verify=False)
-        if "NO_TEMPLATE" in response.text:
+        if "NO_TEMPLATE" in response.text or response.status_code >= 400:
             return False  # No info
         else:
             # Print information
