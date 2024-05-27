@@ -21,6 +21,8 @@ class FirebaseObj:
         if self.config.get('databaseURL') is None:
             self.config['databaseURL'] = ''
         self.user = None
+        self.origin_url = args.url
+        self.origin_domain = urlparse(self.origin_url).netloc
         self.session = session
         self.session.verify = False
         self.session.headers = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/115.0'}
@@ -75,8 +77,9 @@ class FirebaseObj:
         return request_object.json()
     
     def print_message(self, response_obj, description, priority):
+        description = description + f"\nFirebase Config found on: {self.origin_url}"
         if self.redcon_mode:
-            print(json.dumps(get_results_structure(response_obj, description, priority, self.scope)))
+            print(json.dumps(get_results_structure(response_obj, description, priority, self.origin_domain)))
         else:
             print(description)
 
@@ -95,7 +98,10 @@ def get_results_structure(response_obj, description, priority, scope):
     raw_request = create_raw_http_request(method, url, request_headers, request_body)
     raw_response = create_raw_http_response(response_obj)
 
-    ip = socket.gethostbyname(scope)
+    try:
+        ip = socket.gethostbyname(scope)
+    except Exception:
+        ip = socket.gethostbyname(scope)
 
     return {
         'scanner_id': 'redcon',
